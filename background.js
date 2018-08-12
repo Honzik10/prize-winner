@@ -53,11 +53,12 @@ var timeToOneNewTabs = 60000 * 30;
 
 setInterval(function() {
   console.log("5 secs interval script...");
-  intervalCounter++;
   
   if(intervalCounter*intervalSleepMs > timeToOneNewTabs || intervalCounter===0) {
 	closeTabsAndOpenNew();
 	intervalCounter = 1;
+  } else {
+  	intervalCounter++;
   }
   
   checkForMascot();
