@@ -1,0 +1,15 @@
+{
+  "name": "PrizeWinner",
+  "version": "1.0",
+  "description": "Detects css class on tabs for the win!",
+      "background": {
+      "scripts": ["background.js"],
+      "persistent": false
+    },
+  "permissions": [
+     "tabs",
+     "http://*/",
+     "https://*/"
+  ],
+  "manifest_version": 2
+}
