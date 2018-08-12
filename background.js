@@ -1,4 +1,4 @@
-var pageQuery = {url: "DOMAIN_URL_REGEX_TO_CHANGE"};
+var pageQuery = {url: "https://www.pepper.pl/*"};
 var notificationAudioUrl = "http://soundbible.com/mp3/Bell%20Sound%20Ring-SoundBible.com-181681426.mp3";
 
 function reloadTabs() {
