@@ -4,7 +4,7 @@ var notificationAudioUrl = "http://soundbible.com/mp3/Bell%20Sound%20Ring-SoundB
 function reloadTabs() {
 	chrome.tabs.query(pageQuery, function(tabs) {
 		console.log("reloading tabs " + tabs.length);
-		
+
 		for(var i=1;i<tabs.length;i++) {
 			chrome.tabs.reload(tabs[i].id);
 		}
@@ -13,11 +13,13 @@ function reloadTabs() {
 
 function checkForMascot() {
 	chrome.tabs.query(pageQuery, function(tabs) {
-		console.log("executing script for " + tabs.length);
+		console.log("executing script for %d tabs", tabs.length);
 		for(var i=0;i<tabs.length;i++) {
 			chrome.tabs.executeScript(tabs[i].id, {file: "check-for-mascot.js"}, function(arr){
 				if(arr[0] === true) {
-					new Audio(notificationAudioUrl).play();
+                    console.error("Winner winner chicken dinner");
+                    new Audio(notificationAudioUrl).play();
+                    alert("Winner winner chicken dinner");
 				}
 			});
 		}
@@ -28,39 +30,39 @@ function closeTabsAndOpenNew() {
 	chrome.tabs.query(pageQuery, function(tabs) {
 		console.log("closing of %d tabs", tabs.length);
 		chrome.tabs.remove(tabs.map(x => x.id).slice(1), function() {
-			openNewTabs();
+			openNewTabs(tabs[0]);
 		});
 	});
 }
 
-function openNewTabs() {
-	chrome.tabs.query(pageQuery, function(tabs) {
-		chrome.tabs.executeScript(tabs[0].id, {file: "get-offer-urls.js"}, function(data){
-			var urls = data[0];
-			console.log("Opening new tabs " + urls.length);
-			urls.forEach(function(url) {
-				chrome.tabs.create({url: url});
-			});
-		});
-	});
+function openNewTabs(firstTab) {
+    chrome.tabs.reload(firstTab.id, null, function () {
+        chrome.tabs.executeScript(firstTab.id, {file: "get-offer-urls.js"}, function (data) {
+            var urls = data[0];
+            console.log("Opening new %d tabs", urls.length);
+            urls.forEach(function (url) {
+                chrome.tabs.create({url: url});
+            });
+        });
+    });
 }
 
-var intervalSleepMs = 5000;
+var intervalSleepMs = 1000;
 var startDate = new Date();
 var intervalCounter = 0;
-var reloadTimeMs = 61000;
-var timeToOneNewTabs = 60000 * 30;
+var reloadTimeMs = 65000;
+var timeToOpenNewTabs = 60000 * 1;
 
 setInterval(function() {
-  console.log("5 secs interval script...");
-  
-  if(intervalCounter*intervalSleepMs > timeToOneNewTabs || intervalCounter===0) {
+  console.log("run of interval check script");
+
+  if(intervalCounter*intervalSleepMs > timeToOpenNewTabs || intervalCounter===0) {
 	closeTabsAndOpenNew();
 	intervalCounter = 1;
   } else {
   	intervalCounter++;
   }
-  
+
   checkForMascot();
   if(new Date().getTime() - startDate.getTime() > reloadTimeMs) {
 	  startDate = new Date();
