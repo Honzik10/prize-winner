@@ -38,11 +38,24 @@ function closeTabsAndOpenNew() {
 function openNewTabs(firstTab) {
     chrome.tabs.reload(firstTab.id, null, function () {
         chrome.tabs.executeScript(firstTab.id, {file: "get-offer-urls.js"}, function (data) {
-            var urls = data[0];
-            console.log("Opening new %d tabs", urls.length);
-            urls.forEach(function (url) {
-                chrome.tabs.create({url: url, active: false});
-            });
+
+            function currentTabCallback(tabs) {
+                var urls = data[0];
+                var currTab = tabs[0];
+                if (!currTab) {
+                    return;
+                }
+                console.log("Opening new %d tabs", urls.length);
+                urls.forEach(function (url) {
+                    chrome.tabs.create({url: url, active: true},createNewTabCallback);
+                });
+
+                function createNewTabCallback() {
+                    chrome.tabs.update(currTab.id, {selected: true});
+                }
+            }
+
+            chrome.tabs.query({active: true, currentWindow: true}, currentTabCallback);
         });
     });
 }
