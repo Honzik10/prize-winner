@@ -41,7 +41,7 @@ function openNewTabs(firstTab) {
             var urls = data[0];
             console.log("Opening new %d tabs", urls.length);
             urls.forEach(function (url) {
-                chrome.tabs.create({url: url});
+                chrome.tabs.create({url: url, active: false});
             });
         });
     });
