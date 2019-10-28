@@ -1,84 +1,187 @@
 var pageQuery = {url: "https://www.pepper.pl/*"};
-var notificationAudioUrl = "http://soundbible.com/mp3/Bell%20Sound%20Ring-SoundBible.com-181681426.mp3";
+var notificationAudio = new Audio("http://soundbible.com/mp3/Bell%20Sound%20Ring-SoundBible.com-181681426.mp3");
+var intervalSleepMs = 1000;
+var timeToOpenNewTabs = 70000;
+var notifiedTabIds = []; //tmp solution cause notifications are not showing
+var tabOpeningDate;
+var mascotCheckDate;
+var runId = 0;
+var previouslyFinishedRunId = -1;
+var forceOpenTabs = true;
 
-function reloadTabs() {
-	chrome.tabs.query(pageQuery, function(tabs) {
-		console.log("reloading tabs " + tabs.length);
+//setup run to refresh and open tabs - sets interval check
+setInterval(() => {
+    startScript();
+}, 1000);
 
-		for(var i=1;i<tabs.length;i++) {
-			chrome.tabs.reload(tabs[i].id);
-		}
-	});
+function startScript() {
+
+    if (forceOpenTabs || (calculatePassedMsForGivenDate(tabOpeningDate) > timeToOpenNewTabs && (runId == previouslyFinishedRunId))) {
+        runId++;
+        forceOpenTabs = false;
+        openNewTabs();
+    } else if (mascotCheckDate == null || calculatePassedMsForGivenDate(mascotCheckDate) > intervalSleepMs) {
+        checkTabsForMascot();
+    }
 }
 
-function checkForMascot() {
-	chrome.tabs.query(pageQuery, function(tabs) {
-		console.log("executing script for %d tabs", tabs.length);
-		for(var i=0;i<tabs.length;i++) {
-			chrome.tabs.executeScript(tabs[i].id, {file: "check-for-mascot.js"}, function(arr){
-				if(arr[0] === true) {
-                    console.error("Winner winner chicken dinner");
-                    new Audio(notificationAudioUrl).play();
-                    alert("Winner winner chicken dinner");
-				}
-			});
-		}
-	});
+function calculatePassedMsForGivenDate(date) {
+    return (new Date() - date);
 }
 
-function closeTabsAndOpenNew() {
-	chrome.tabs.query(pageQuery, function(tabs) {
-		console.log("closing of %d tabs", tabs.length);
-		chrome.tabs.remove(tabs.map(x => x.id).slice(1), function() {
-			openNewTabs(tabs[0]);
-		});
-	});
+async function checkTabsForMascot() {
+    let tabs = await getTabs();
+    console.log("Checking if any of %d tabs have mascot", tabs.length);
+
+    for (i in tabs) {
+        let isMascotExists = await checkForMascot(tabs[i].id);
+        if (isMascotExists) {
+            notifyOnMascotFind(tabs[i]);
+        }
+    }
+
+    mascotCheckDate = new Date();
 }
 
-function openNewTabs(firstTab) {
-    chrome.tabs.reload(firstTab.id, null, function () {
-        chrome.tabs.executeScript(firstTab.id, {file: "get-offer-urls.js"}, function (data) {
+function checkForMascot(tabId) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.executeScript(tabId, {file: "check-for-mascot.js"}, result => rejectOnErrorOrResolveWithValue(resolve, reject, result[0]));
+    }));
+}
 
-            function currentTabCallback(tabs) {
-                var urls = data[0];
-                var currTab = tabs[0];
-                if (!currTab) {
-                    return;
-                }
-                console.log("Opening new %d tabs", urls.length);
-                urls.forEach(function (url) {
-                    chrome.tabs.create({url: url, active: true},createNewTabCallback);
-                });
+function notifyOnMascotFind(tab) {
+    if (notifiedTabIds.includes(tab.id)) {
+        return;
+    }
+    notifiedTabIds.push(tab.id);
+    let msg = "Winner winner chicken dinner in tab " + tab.title;
+    alert(msg);
+    console.log(msg);
+    notificationAudio.play();
 
-                function createNewTabCallback() {
-                    chrome.tabs.update(currTab.id, {selected: true});
-                }
-            }
+    chrome.notifications.create('12', {
+        message: msg,
+        type: "basic",
+        title: "Mascot found",
+        iconUrl: 'notification.jpg'
+    }, function (id) {
+        console.log("notification %s created", id);
+    });
 
-            chrome.tabs.query({active: true, currentWindow: true}, currentTabCallback);
-        });
+    chrome.notifications.getPermissionLevel(function (permLevel) {
+        console.log(permLevel);
     });
 }
 
-var intervalSleepMs = 1000;
-var startDate = new Date();
-var intervalCounter = 0;
-var reloadTimeMs = 65000;
-var timeToOpenNewTabs = 60000 * 1;
+async function openNewTabs() {
+    notifiedTabIds = [];
 
-setInterval(function() {
-  console.log("run of interval check script");
+    let tabs = await getTabs();
+    let mainPageTab = tabs[0];
+    let activeTab = await getActiveTabByWindowId(mainPageTab.windowId);
+    await setActiveTab(mainPageTab);
+    await reloadTab(mainPageTab);
+    await waitForReload(mainPageTab);
 
-  if(intervalCounter*intervalSleepMs > timeToOpenNewTabs || intervalCounter===0) {
-	closeTabsAndOpenNew();
-	intervalCounter = 1;
-  } else {
-  	intervalCounter++;
-  }
+    let idsOfTabsToClose = tabs.map(x => x.id).slice(1);
+    await closeTabs(idsOfTabsToClose);
 
-  checkForMascot();
-  if(new Date().getTime() - startDate.getTime() > reloadTimeMs) {
-	  startDate = new Date();
-	  reloadTabs();
-  }
-}, intervalSleepMs);
+    let offerUrls = await getOfferUrlsFromMainTab(mainPageTab);
+    console.log("Opening new urls %a", offerUrls);
+    for (i in offerUrls) {
+        await createTab(offerUrls[i], true, mainPageTab.windowId);
+    }
+
+    //TODO tab wont switch to active
+    await updateTab(activeTab.id, {highlighted: true, active: true, selected: true});
+    await setActiveTab(activeTab);
+    previouslyFinishedRunId = runId;
+    tabOpeningDate = new Date();
+}
+
+function getOfferUrlsFromMainTab(mainTab) {
+    console.log("getOfferUrlsFromMainTab %d %s", mainTab.id, mainTab.title);
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.executeScript(mainTab.id, {file: "get-offer-urls.js"}, urls => rejectOnErrorOrResolveWithValue(resolve, reject, urls[0]));
+    }));
+}
+
+function waitForReload(tab) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+            if (info.status === 'complete' && tabId === tab.id) {
+                chrome.tabs.onUpdated.removeListener(listener);
+                resolve(tab);
+            }
+        });
+    }));
+}
+
+function reloadTab(tab) {
+    console.log("reload %d %s", tab.id, tab.title);
+    return new Promise(((resolve, reject) => {
+        try {
+            chrome.tabs.reload(tab.id, () => {
+                rejectOnErrorOrResolveWithValue(resolve, reject, null)
+            });
+        } catch (err) {
+            reject(err);
+        }
+    }));
+}
+
+function createTab(url, active, windowId) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.create({url: url, active: active, windowId: windowId}, result => rejectOnErrorOrResolveWithValue(resolve, reject, result));
+    }));
+}
+
+function closeTabs(tabIds) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.remove(tabIds, result => rejectOnErrorOrResolveWithValue(resolve, reject, result));
+    }));
+}
+
+function getTabs() {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.query(pageQuery, tabs => rejectOnErrorOrResolveWithValue(resolve, reject, tabs));
+    }));
+}
+
+function getAllTabs() {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.query({}, tabs => rejectOnErrorOrResolveWithValue(resolve, reject, tabs));
+    }));
+}
+
+function getActiveTabByWindowId(windowId) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.query({active: true, windowId: windowId}, activeTab => rejectOnErrorOrResolveWithValue(resolve, reject, activeTab[0]));
+    }));
+}
+
+function setActiveTab(tab) {
+    if (!tab) {
+        return;
+    }
+    console.log("setActiveTab %d %s", tab.id, tab.title);
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.update(tab.id, {selected: true}, result => rejectOnErrorOrResolveWithValue(resolve, reject, result));
+    }));
+}
+
+function updateTab(tabId, values) {
+    return new Promise(((resolve, reject) => {
+        chrome.tabs.update(tabId, values, result => rejectOnErrorOrResolveWithValue(resolve, reject, result));
+    }));
+}
+
+function rejectOnErrorOrResolveWithValue(resolve, reject, value) {
+    let lastErr = chrome.runtime.lastError;
+    if (lastErr) {
+        console.error(lastErr.message);
+        reject(lastErr);
+    } else {
+        resolve(value);
+    }
+}
